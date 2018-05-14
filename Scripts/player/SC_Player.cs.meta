@@ -1,0 +1,517 @@
+﻿using UnityEngine;
+using System.Collections;
+using XInputDotNetPure;
+
+[RequireComponent(typeof (Rigidbody))]
+
+public class SC_Player : MonoBehaviour {
+
+	public enum e_Player {Player1 = 1, Player2 = 2, Player3 = 3, Player4 = 4};
+	public e_Player playerIndex;
+	public Color s_Color;
+
+	private bool b_HasTouchedForDash;
+
+	public AnimationCurve _DashSpeed;
+	private float f_DashDuration;
+	private float f_InitialDistance;
+	float f_curBoost;
+
+	//Variable pour accelaration / speed
+	public float f_MaxSpeed;
+	public float f_Accel;
+
+	//Variable P-U
+	public float f_DistanceProjectile;
+	public float f_SpeedProjectile;
+	public float f_DashStrengh;
+	public float f_MvtSpeed;
+	public int i_DashLimit;
+	public float f_TrailfadeOutSpeed;
+	public float f_ZoneDash;
+	public float f_PushStrenght;
+
+	//P-U
+	public bool b_DashKill;
+
+	private Vector3 _LookDir;
+	private bool b_IsDashing;
+	private bool b_CanDash;
+	public GameObject _TriggerCaC;
+	public bool b_IsCaCing;
+	public GameObject _Projectile;
+	public GameObject _Viseur;
+	private GameObject _Cible;
+	private Collider[] a_CloseEnemies;
+	private bool b_IsReallyDashing;
+	private Animator _Animator;
+
+	//TO ADD removed  b_isinpucombo
+
+	//Animation int state
+	//Idle = 0
+	//Cac = 1
+	//Move = 2
+	//Dash = 3
+	//Death = 4
+	
+	Vector3 v_StartPos;
+
+	//TO ADD removed slashmark var
+
+	
+	//Variable pour trail
+	SC_playerCombo SC_playerComboRef;
+	SC_dashTrail SC_dashTrailRef;
+	SC_playerDeath SC_playerDeathRef;
+	SC_lifeCounter SC_lifeCounterRef;
+	public SC_ScoreCounter SC_ScoreCounterRef;
+
+	SC_closeToEnnemiFB SC_closeToEnnemiFBRef;
+
+
+	[HideInInspector]
+	public SC_playerComboCounter SC_playerComboCounterRef;
+
+
+	bool b_isRumbling = false;
+	float f_rumbleTimer;
+	string s_playerIndex;
+
+	// Use this for initialization
+	void Start () 
+	{
+
+		if((int)playerIndex == 1) s_playerIndex = "One";
+		if((int)playerIndex == 2) s_playerIndex = "Two";
+		if((int)playerIndex == 3) s_playerIndex = "Three";
+		if((int)playerIndex == 4) s_playerIndex = "Four";
+
+		SC_playerComboCounterRef = GameObject.Find("scoreCounterGUI"+(int)playerIndex).GetComponent<SC_playerComboCounter>();
+
+		b_HasTouchedForDash = false;
+
+		SC_playerComboRef = this.GetComponent<SC_playerCombo>();
+
+		SC_playerDeathRef = this.GetComponent<SC_playerDeath>();
+
+		SC_closeToEnnemiFBRef = this.GetComponent<SC_closeToEnnemiFB>();
+
+		b_DashKill = false;
+
+		Physics.IgnoreLayerCollision(8,8);
+
+		SC_dashTrailRef = GetComponent<SC_dashTrail>();
+
+		this.tag = "Player";
+
+		b_IsCaCing = false;
+		b_IsDashing = false;
+		b_CanDash = true;
+		CaCOFF();
+
+		_Animator = this.gameObject.GetComponent<Animator>();
+		_Animator.SetInteger("AnimationState", 0);
+
+		_TriggerCaC.SetActive(false);
+	}
+	
+	// Update is called once per frame
+	void Update () 
+	{
+		if(Input.GetKey(KeyCode.Space))
+		{
+			Application.LoadLevel(Application.loadedLevel);
+		}
+
+
+		//J'arrive pas a setter le playerindex selon un variable
+		if(b_isRumbling == true)
+		{
+			rumble();
+		}
+
+
+		if(!b_IsDashing)
+		{
+			Move ();
+		}
+
+		Dash ();
+
+		if(b_DashKill)
+		{
+			CaCON();
+		}
+		else
+		{
+			if (Input.GetButtonDown("Attaque" + (int)playerIndex))
+			{
+				CaC ();
+			}
+		}
+
+		if(_LookDir != Vector3.zero)
+		{
+			if(_LookDir.x >= 0)
+			{
+				transform.eulerAngles = new Vector3( 0, 0, Vector3.Angle(_LookDir, -Vector3.up));
+			}
+			else
+			{
+				transform.eulerAngles = new Vector3( 0, 0, - Vector3.Angle(_LookDir, -Vector3.up));
+			}
+		}
+
+
+		if(_Animator.GetInteger("AnimationState") != 1)
+		{
+			if(!b_IsDashing && !b_DashKill)
+			{
+				CaCOFF();
+			}
+		}
+
+		if((Mathf.Abs(Input.GetAxis(("Horizontal" + (int)playerIndex))) + Mathf.Abs(Input.GetAxis(("Vertical" + (int)playerIndex)))) > 0.2f)
+		{
+			_LookDir = new Vector3(Input.GetAxis("Horizontal" + (int)playerIndex), Input.GetAxis("Vertical" + (int)playerIndex), 0.0f);
+		}
+	}
+
+	private void Move ()
+	{
+		if((Mathf.Abs(Input.GetAxis(("Horizontal" + (int)playerIndex))) + Mathf.Abs(Input.GetAxis(("Vertical" + (int)playerIndex)))) > 0.2f)
+		{
+			if(f_MvtSpeed<f_MaxSpeed)f_MvtSpeed += f_Accel*Time.deltaTime;
+			if(f_MvtSpeed>f_MaxSpeed) f_MvtSpeed = f_MaxSpeed;
+
+
+			rigidbody.velocity = new Vector3(Input.GetAxis(("Horizontal" + (int)playerIndex)) *  f_MvtSpeed, 
+			                                 Input.GetAxis(("Vertical" + (int)playerIndex)) * f_MvtSpeed,
+			                                 0.0f);
+
+			transform.up = -_LookDir;
+
+			if(!b_IsCaCing && !b_IsDashing)
+			{
+				SetAnimation(2);
+			}
+
+//			transform.LookAt(Vector3.up, new Vector3(transform.position.x + _LookDir.x,
+//			                                         transform.position.y + _LookDir.y,
+//			                                         0));
+		}
+		else
+		{
+			rigidbody.velocity = Vector3.zero;
+			f_MvtSpeed = 0;
+
+			if(!b_IsCaCing && !b_IsDashing)
+			{
+				SetAnimation(0);
+			}
+		}
+	}
+
+	private void Dash ()
+	{
+		if(b_CanDash)
+		{
+			if(Input.GetButtonDown("Dash" + (int)playerIndex))
+			{
+				_Viseur.SetActive(true);
+				b_IsDashing = true;
+				b_CanDash = false;
+				rigidbody.velocity = Vector3.zero;
+			}
+		}
+		
+		if(b_IsDashing)
+		{
+			if(FindClosestEnemy() != null)
+			{
+				_Cible = FindClosestEnemy();
+				Vector3 v3 = _Cible.transform.position - transform.position;
+				_Viseur.transform.position = _Cible.transform.position;
+				
+				if(Input.GetButtonUp("Dash" + (int)playerIndex))
+				{
+					b_IsReallyDashing = true;
+					f_InitialDistance = Vector3.Distance(_Cible.transform.position, transform.position);
+				}
+				
+				if(b_IsReallyDashing)
+				{
+					SC_dashTrailRef.activateTrail(f_TrailfadeOutSpeed);
+					
+					f_DashDuration = 1 - (Vector3.Distance(_Cible.transform.position, transform.position) / f_InitialDistance);
+					
+					_LookDir = v3;
+					
+					rigidbody.velocity = v3.normalized * _DashSpeed.Evaluate(f_DashDuration) * f_DashStrengh;
+
+
+					//Feedback ennemy zone attack
+					SC_closeToEnnemiFBRef.inEnnemyZone();
+
+
+					if(Vector3.Distance(_Cible.transform.position, transform.position) < 0.45f)
+					{
+						DashEnd ();
+					}
+
+					if(!b_IsCaCing)
+					{
+						SetAnimation(3);
+					}
+				}
+			}
+			else
+			{
+				DashEnd ();
+			}
+		}
+	}
+
+	private void CaC ()
+	{
+		if(!b_IsCaCing)
+		{
+			_Animator.SetInteger("AnimationState", 1);
+			b_IsCaCing = true;
+		}
+	}
+
+	public void SetAnimation(int i)
+	{
+		_Animator.SetInteger("AnimationState", i);
+	}
+
+	public void CaCON()
+	{
+		b_IsCaCing = true;
+		_TriggerCaC.SetActive(true);
+	}
+
+	public void CaCOFF()
+	{
+		b_IsCaCing = false;
+		_TriggerCaC.SetActive(false);
+
+		if(b_IsDashing)
+		{
+			if(!b_HasTouchedForDash)
+			{
+				DashEnd ();
+			}
+			else
+			{
+				b_HasTouchedForDash = false;
+			}
+		}
+	}
+
+	public void CaCHasTouched (GameObject _touchedEnnemy)
+	{
+
+
+		if(b_isRumbling == false)b_isRumbling = true;
+
+
+		b_HasTouchedForDash = true;
+
+		//Combo for dash
+		//TO ADD (correct this line (removed condition)
+		if(b_IsReallyDashing == true)
+		{
+			//TO ADD
+			SC_playerComboCounterRef.addKill();
+
+			SC_playerComboRef.addKillCount(1);
+
+			//TO ADD (removed slashmark)	
+		}
+
+		//TO ADD
+		if(b_IsReallyDashing != true) SC_ScoreCounterRef.IncreaseScore(_touchedEnnemy.GetComponent<SC_Ennemi>().i_ScoreValue);
+
+		SC_ScoreCounterRef.IncreaseScoreForPlayer((int)playerIndex);
+
+		//TO ADD (correct this line (removed condition)
+		SC_playerDeathRef.SetLifeAmount(1);
+
+		_TriggerCaC.SetActive(false);
+	}
+
+	public void resetKillCount(){
+		SC_ScoreCounterRef.ResetScoreForPlayer((int)playerIndex);
+	}
+
+	public void StopMvt(){
+		rigidbody.velocity = Vector3.zero;
+	}
+
+	private GameObject FindClosestEnemy ()
+	{
+		a_CloseEnemies = Physics.OverlapSphere(transform.position, f_ZoneDash);
+
+		Vector3 _V3Temp;
+		Vector3 _V3Temp2;
+
+		GameObject _ClosestEnemy = null;
+
+		for(int i = 1; i < a_CloseEnemies.Length; i++)
+		{
+			if(a_CloseEnemies[i].gameObject.CompareTag("Ennemi"))
+			{
+				if(_ClosestEnemy == null)
+				{
+					_ClosestEnemy = a_CloseEnemies[i].gameObject;
+				}
+				else
+				{
+					_V3Temp = transform.position - a_CloseEnemies[i].transform.position;
+					_V3Temp2 = transform.position - _ClosestEnemy.transform.position;
+
+					if(Vector3.Angle(-_LookDir, _V3Temp) < Vector3.Angle(-_LookDir, _V3Temp2))
+					{
+						_ClosestEnemy = a_CloseEnemies[i].gameObject;
+					}
+				}
+			}
+		}
+
+		return _ClosestEnemy;
+	}
+
+	public void DashEnd ()
+	{
+			SC_playerComboCounterRef.endCount();
+
+			SC_playerComboRef.resetKillCount();
+
+			SC_closeToEnnemiFBRef.noFB();
+			SC_closeToEnnemiFBRef.b_inEnnemyZone = false;	
+
+			_Viseur.SetActive(false);
+
+			SC_dashTrailRef.deactivateTrail();
+			
+			removeComboBoost(f_curBoost);
+			f_curBoost = 0;
+
+			b_IsReallyDashing = false;
+			b_IsDashing = false;
+			b_CanDash = true;
+
+			rigidbody.velocity = Vector3.zero;
+			SetAnimation(0);	
+	}
+
+
+	public Color GetSpriteColor(){
+		return s_Color;
+	}
+
+	public float GetPushStrenght(){
+		return f_PushStrenght;
+	}
+
+	public void comboBoost(float _Boost)
+	{
+		f_curBoost = _Boost;
+		f_DashStrengh = f_DashStrengh +_Boost;
+		f_PushStrenght = f_PushStrenght +_Boost;
+	}
+
+	public void removeComboBoost(float _BoostToRemove)
+	{
+		f_DashStrengh = f_DashStrengh- _BoostToRemove;
+		f_PushStrenght = f_PushStrenght- _BoostToRemove;
+	}
+
+	public void rumble()
+	{
+		if((int)playerIndex == 1)
+		{
+			GamePad.SetVibration(PlayerIndex.One,0.7f,0.7f);
+			f_rumbleTimer += Time.deltaTime;
+			if(f_rumbleTimer >= 0.2f)
+			{
+				b_isRumbling = false;
+				GamePad.SetVibration(PlayerIndex.One,0f,0f);
+				f_rumbleTimer = 0;
+			}
+		}
+		if((int)playerIndex == 2)
+		{
+			GamePad.SetVibration(PlayerIndex.Two,0.7f,0.7f);
+			f_rumbleTimer += Time.deltaTime;
+			if(f_rumbleTimer >= 0.2f)
+			{
+				b_isRumbling = false;
+				GamePad.SetVibration(PlayerIndex.Two,0f,0f);
+				f_rumbleTimer = 0;
+			}
+		}
+		if((int)playerIndex == 3)
+		{
+			GamePad.SetVibration(PlayerIndex.Three,0.7f,0.7f);
+			f_rumbleTimer += Time.deltaTime;
+			if(f_rumbleTimer >= 0.2f)
+			{
+				b_isRumbling = false;
+				GamePad.SetVibration(PlayerIndex.Three,0f,0f);
+				f_rumbleTimer = 0;
+			}
+		}
+		if((int)playerIndex == 4)
+		{
+			GamePad.SetVibration(PlayerIndex.Four,0.7f,0.7f);
+			f_rumbleTimer += Time.deltaTime;
+			if(f_rumbleTimer >= 0.2f)
+			{
+				b_isRumbling = false;
+				GamePad.SetVibration(PlayerIndex.Four,0f,0f);
+				f_rumbleTimer = 0;
+			}
+		}
+	}
+
+	public void stopRumble()
+	{
+		if((int)playerIndex == 1)
+		{
+			b_isRumbling = false;
+			GamePad.SetVibration(PlayerIndex.One,0f,0f);
+			f_rumbleTimer = 0;
+		}
+		if((int)playerIndex == 2)
+		{
+			b_isRumbling = false;
+			GamePad.SetVibration(PlayerIndex.Two,0f,0f);
+			f_rumbleTimer = 0;
+		}
+		if((int)playerIndex == 3)
+		{
+			b_isRumbling = false;
+			GamePad.SetVibration(PlayerIndex.Three,0f,0f);
+			f_rumbleTimer = 0;
+		}
+		if((int)playerIndex == 4)
+		{
+			b_isRumbling = false;
+			GamePad.SetVibration(PlayerIndex.Four,0f,0f);
+			f_rumbleTimer = 0;
+		}
+	}
+
+
+
+	private void OnDrawGizmosSelected() {
+		Gizmos.color = Color.blue;			
+		Gizmos.DrawWireSphere(transform.position, f_ZoneDash);
+	}
+
+
+}
